@@ -155,9 +155,26 @@
   document.addEventListener("mouseup", onMouseUp, true);
   document.addEventListener("keydown", onKey, true);
 
+  function forwardStartToFrames() {
+    const frames = document.querySelectorAll("iframe");
+    for (const f of frames) {
+      try {
+        f.contentWindow.postMessage({ __rectSelectStart: true }, "*");
+      } catch (e) {}
+    }
+  }
+
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.__rectSelectStart) {
+      enterSelectMode();
+      forwardStartToFrames();
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.action === "startRectangleSelect") {
       enterSelectMode();
+      forwardStartToFrames();
     }
   });
 })();
