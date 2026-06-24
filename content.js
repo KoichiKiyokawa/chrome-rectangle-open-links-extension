@@ -8,28 +8,31 @@
 
   const Z_OVERLAY = "2147483646";
   const Z_UI = "2147483647";
+  const isTop = window.top === window.self;
 
   function enterSelectMode() {
     if (mode) return;
     mode = true;
     document.body.style.cursor = "crosshair";
-    banner = document.createElement("div");
-    banner.textContent = "ドラッグで矩形選択 / Esc でキャンセル";
-    Object.assign(banner.style, {
-      position: "fixed",
-      top: "8px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      background: "rgba(0,0,0,0.7)",
-      color: "#fff",
-      padding: "6px 12px",
-      borderRadius: "6px",
-      fontSize: "12px",
-      fontFamily: "system-ui, sans-serif",
-      zIndex: Z_UI,
-      pointerEvents: "none",
-    });
-    document.body.appendChild(banner);
+    if (isTop) {
+      banner = document.createElement("div");
+      banner.textContent = "ドラッグで矩形選択 / Esc でキャンセル";
+      Object.assign(banner.style, {
+        position: "fixed",
+        top: "8px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "rgba(0,0,0,0.7)",
+        color: "#fff",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        fontSize: "12px",
+        fontFamily: "system-ui, sans-serif",
+        zIndex: Z_UI,
+        pointerEvents: "none",
+      });
+      document.body.appendChild(banner);
+    }
   }
 
   function exitSelectMode() {
