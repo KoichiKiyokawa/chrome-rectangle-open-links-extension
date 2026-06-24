@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Rectangle Open Links - Test Page</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-top: 24px; }
+    a { margin-right: 8px; }
+    iframe { border: 1px solid #ccc; width: 100%; height: 200px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>矩形選択テストページ</h1>
+
+  <h2>トップフレームのリンク（4つ）</h2>
+  <div>
+    <a href="https://example.com/top-1">Top Link 1</a>
+    <a href="https://example.com/top-2">Top Link 2</a>
+    <a href="https://example.com/top-3">Top Link 3</a>
+    <a href="https://example.com/top-4">Top Link 4</a>
+  </div>
+
+  <h2>iframe（子フレーム）- frame.html</h2>
+  <iframe src="frame.html"></iframe>
+
+  <h2>ネストされた iframe - nested.html</h2>
+  <iframe src="nested-parent.html"></iframe>
+
+  <h2>日本語リンク</h2>
+  <div>
+    <a href="https://example.com/ja-1">日本語リンク1</a>
+    <a href="https://example.com/ja-2">日本語リンク2</a>
+  </div>
+</body>
+</html>

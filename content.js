@@ -13,7 +13,8 @@
   function enterSelectMode() {
     if (mode) return;
     mode = true;
-    document.body.style.cursor = "crosshair";
+    document.documentElement.style.cursor = "crosshair";
+    document.body && (document.body.style.cursor = "crosshair");
     if (isTop) {
       banner = document.createElement("div");
       banner.textContent = "ドラッグで矩形選択 / Esc でキャンセル";
@@ -38,7 +39,8 @@
   function exitSelectMode() {
     mode = false;
     dragging = false;
-    document.body.style.cursor = "";
+    document.documentElement.style.cursor = "";
+    document.body && (document.body.style.cursor = "");
     if (box) {
       box.remove();
       box = null;
