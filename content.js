@@ -1,46 +1,73 @@
 (() => {
+  const core = globalThis.RectangleOpenLinksCore;
+  const isTop = window.top === window.self;
+  const Z_OVERLAY = "2147483646";
+  const Z_UI = "2147483647";
+  const COLLECT_TIMEOUT_MS = 700;
+
   let mode = false;
   let dragging = false;
   let startX = 0;
   let startY = 0;
+  let overlay = null;
   let box = null;
   let banner = null;
+  const pendingCollections = new Map();
 
-  const Z_OVERLAY = "2147483646";
-  const Z_UI = "2147483647";
-  const isTop = window.top === window.self;
+  function createFixedDiv(styles) {
+    const el = document.createElement("div");
+    Object.assign(el.style, styles);
+    document.documentElement.appendChild(el);
+    return el;
+  }
+
+  function setCursor(cursor) {
+    document.documentElement.style.cursor = cursor;
+    if (document.body) document.body.style.cursor = cursor;
+  }
 
   function enterSelectMode() {
     if (mode) return;
     mode = true;
-    document.documentElement.style.cursor = "crosshair";
-    document.body && (document.body.style.cursor = "crosshair");
-    if (isTop) {
-      banner = document.createElement("div");
-      banner.textContent = "ドラッグで矩形選択 / Esc でキャンセル";
-      Object.assign(banner.style, {
-        position: "fixed",
-        top: "8px",
-        left: "50%",
-        transform: "translateX(-50%)",
-        background: "rgba(0,0,0,0.7)",
-        color: "#fff",
-        padding: "6px 12px",
-        borderRadius: "6px",
-        fontSize: "12px",
-        fontFamily: "system-ui, sans-serif",
-        zIndex: Z_UI,
-        pointerEvents: "none",
-      });
-      document.body.appendChild(banner);
-    }
+    setCursor("crosshair");
+    if (!isTop) return;
+
+    overlay = createFixedDiv({
+      position: "fixed",
+      inset: "0",
+      zIndex: Z_OVERLAY,
+      cursor: "crosshair",
+      background: "transparent",
+    });
+    overlay.addEventListener("mousedown", onMouseDown, true);
+    overlay.addEventListener("mousemove", onMouseMove, true);
+    overlay.addEventListener("mouseup", onMouseUp, true);
+
+    banner = createFixedDiv({
+      position: "fixed",
+      top: "8px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "rgba(0,0,0,0.7)",
+      color: "#fff",
+      padding: "6px 12px",
+      borderRadius: "6px",
+      fontSize: "12px",
+      fontFamily: "system-ui, sans-serif",
+      zIndex: Z_UI,
+      pointerEvents: "none",
+    });
+    banner.textContent = "ドラッグで矩形選択 / Esc でキャンセル";
   }
 
   function exitSelectMode() {
     mode = false;
     dragging = false;
-    document.documentElement.style.cursor = "";
-    document.body && (document.body.style.cursor = "");
+    setCursor("");
+    if (overlay) {
+      overlay.remove();
+      overlay = null;
+    }
     if (box) {
       box.remove();
       box = null;
@@ -52,14 +79,13 @@
   }
 
   function onMouseDown(e) {
-    if (!mode) return;
+    if (!mode || !isTop) return;
     e.preventDefault();
     e.stopPropagation();
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
-    box = document.createElement("div");
-    Object.assign(box.style, {
+    box = createFixedDiv({
       position: "fixed",
       left: startX + "px",
       top: startY + "px",
@@ -67,54 +93,113 @@
       height: "0px",
       background: "rgba(0,120,215,0.2)",
       border: "1px solid rgba(0,120,215,0.9)",
-      zIndex: Z_OVERLAY,
+      zIndex: Z_UI,
       pointerEvents: "none",
     });
-    document.body.appendChild(box);
   }
 
   function onMouseMove(e) {
     if (!dragging || !box) return;
-    const x = Math.min(e.clientX, startX);
-    const y = Math.min(e.clientY, startY);
-    const w = Math.abs(e.clientX - startX);
-    const h = Math.abs(e.clientY - startY);
-    box.style.left = x + "px";
-    box.style.top = y + "px";
-    box.style.width = w + "px";
-    box.style.height = h + "px";
+    const rect = core.buildRect(startX, startY, e.clientX, e.clientY);
+    box.style.left = rect.left + "px";
+    box.style.top = rect.top + "px";
+    box.style.width = rect.width + "px";
+    box.style.height = rect.height + "px";
   }
 
-  function collectLinks(rect) {
-    const links = document.querySelectorAll("a[href]");
-    const seen = new Set();
-    const urls = [];
-    for (const a of links) {
-      const r = a.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      if (
-        cx >= rect.left &&
-        cx <= rect.right &&
-        cy >= rect.top &&
-        cy <= rect.bottom
-      ) {
-        const href = a.href;
-        if (!href) continue;
-        if (!/^https?:/i.test(href)) continue;
-        if (seen.has(href)) continue;
-        seen.add(href);
-        urls.push(href);
-      }
+  async function onMouseUp(e) {
+    if (!dragging || !box) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = false;
+    const selectionRect = core.buildRect(startX, startY, e.clientX, e.clientY);
+    exitSelectMode();
+
+    const links = await collectFrameLinks();
+    const urls = core.collectLinkUrls(links, selectionRect);
+    if (urls.length === 0) {
+      flash("リンクが見つかりませんでした");
+      return;
     }
-    return urls;
+    chrome.runtime.sendMessage({ action: "openLinks", urls });
+    flash(urls.length + " 件のリンクを開きます");
+  }
+
+  function localLinks() {
+    return Array.from(document.querySelectorAll("a[href]"), (a) => {
+      const rect = a.getBoundingClientRect();
+      return {
+        href: a.href,
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
+      };
+    });
+  }
+
+  function frameOffsetForSource(source) {
+    for (const frame of document.querySelectorAll("iframe")) {
+      if (frame.contentWindow !== source) continue;
+      const rect = frame.getBoundingClientRect();
+      return { x: rect.left, y: rect.top };
+    }
+    return null;
+  }
+
+  function offsetLinks(links, offset) {
+    return links.map((link) => ({
+      href: link.href,
+      rect: core.offsetRect(link.rect, offset),
+    }));
+  }
+
+  function collectFrameLinks() {
+    const requestId =
+      Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const childFrames = Array.from(document.querySelectorAll("iframe"));
+    if (childFrames.length === 0) return Promise.resolve(localLinks());
+
+    return new Promise((resolve) => {
+      const collected = localLinks();
+      let remaining = childFrames.length;
+      const finish = () => {
+        pendingCollections.delete(requestId);
+        resolve(collected);
+      };
+      const timer = setTimeout(finish, COLLECT_TIMEOUT_MS);
+      pendingCollections.set(requestId, {
+        add(source, links) {
+          const offset = frameOffsetForSource(source);
+          if (offset) collected.push(...offsetLinks(links, offset));
+          remaining -= 1;
+          if (remaining === 0) {
+            clearTimeout(timer);
+            finish();
+          }
+        },
+      });
+      for (const frame of childFrames) {
+        frame.contentWindow.postMessage(
+          { __rectSelectCollectLinks: true, requestId },
+          "*",
+        );
+      }
+    });
+  }
+
+  async function respondWithLinks(source, requestId) {
+    const links = await collectFrameLinks();
+    source.postMessage(
+      { __rectSelectCollectLinksResult: true, requestId, links },
+      "*",
+    );
   }
 
   function flash(msg) {
-    const el = document.createElement("div");
-    el.textContent = msg;
-    Object.assign(el.style, {
+    const el = createFixedDiv({
       position: "fixed",
       bottom: "16px",
       left: "50%",
@@ -128,24 +213,8 @@
       zIndex: Z_UI,
       pointerEvents: "none",
     });
-    document.body.appendChild(el);
+    el.textContent = msg;
     setTimeout(() => el.remove(), 1500);
-  }
-
-  function onMouseUp() {
-    if (!dragging || !box) return;
-    dragging = false;
-    const rect = box.getBoundingClientRect();
-    const urls = collectLinks(rect);
-    box.remove();
-    box = null;
-    exitSelectMode();
-    if (urls.length === 0) {
-      flash("リンクが見つかりませんでした");
-      return;
-    }
-    chrome.runtime.sendMessage({ action: "openLinks", urls });
-    flash(urls.length + " 件のリンクを開きます");
   }
 
   function onKey(e) {
@@ -155,17 +224,9 @@
     }
   }
 
-  document.addEventListener("mousedown", onMouseDown, true);
-  document.addEventListener("mousemove", onMouseMove, true);
-  document.addEventListener("mouseup", onMouseUp, true);
-  document.addEventListener("keydown", onKey, true);
-
   function forwardStartToFrames() {
-    const frames = document.querySelectorAll("iframe");
-    for (const f of frames) {
-      try {
-        f.contentWindow.postMessage({ __rectSelectStart: true }, "*");
-      } catch (e) {}
+    for (const frame of document.querySelectorAll("iframe")) {
+      frame.contentWindow.postMessage({ __rectSelectStart: true }, "*");
     }
   }
 
@@ -173,8 +234,19 @@
     if (e.data && e.data.__rectSelectStart) {
       enterSelectMode();
       forwardStartToFrames();
+      return;
+    }
+    if (e.data && e.data.__rectSelectCollectLinks) {
+      respondWithLinks(e.source, e.data.requestId);
+      return;
+    }
+    if (e.data && e.data.__rectSelectCollectLinksResult) {
+      const pending = pendingCollections.get(e.data.requestId);
+      if (pending) pending.add(e.source, e.data.links || []);
     }
   });
+
+  document.addEventListener("keydown", onKey, true);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.action === "startRectangleSelect") {
